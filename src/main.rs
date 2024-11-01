@@ -20,6 +20,8 @@ use std::{
 use tokio::process::Command;
 use tokio::spawn;
 use tower_http::services::ServeDir;
+use tracing::{info, error};
+use tracing_subscriber;
 
 const INDEX_HTML: &str = r#"<!DOCTYPE html>
 <html>
@@ -256,6 +258,8 @@ const CONTENT_LENGTH_LIMIT: usize = 500 * 1024 * 1024; // allow uploading up to 
 
 #[tokio::main]
 async fn main() {
+    tracing_subscriber::fmt::init();
+
     let args = Args::parse();
     fs::create_dir_all("attachments").unwrap();
 
@@ -274,16 +278,16 @@ async fn main() {
 
     let server_details = format!("{}:{}", args.listen, args.port);
     let addr: SocketAddr = server_details.parse().expect("Unable to parse socket address");
-    println!("Server running on http://{}", addr);
+    println!("Starting server on http://{}", addr);
 
     match tokio::net::TcpListener::bind(&addr).await {
         Ok(listener) => {
             if let Err(e) = axum::serve(listener, app).await {
-                println!("Server error: {}", e);
+                error!("Server error: {}", e);
             }
         }
         Err(e) => {
-            println!("Failed to bind to address {}: {}", addr, e);
+            error!("Failed to bind to address {}: {}", addr, e);
         }
     }
 }
@@ -380,6 +384,8 @@ async fn save_note(
     writeln!(file, "{}\n{}\n\n---\n", timestamp, content)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
+    info!("Note created: {}", timestamp);
+
     if !links_to_download.is_empty() {
         let notes = state.notes.clone();
         spawn(async move {
@@ -393,7 +399,10 @@ async fn save_note(
                     .output()
                     .await;
 
+                info!("Downloading webpage: {}", url);
+
                 if result.is_err() {
+                    error!("Failed to download webpage: {}", url);
                     let mut notes_lock = notes.lock().unwrap();
                     if let Some(last_note) = notes_lock.last_mut() {
                         let updated_content = last_note.content.replace(
@@ -452,12 +461,14 @@ async fn upload_file(mut multipart: Multipart) -> Result<Json<String>, StatusCod
         let name = field.file_name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
 
+        info!("Uploading file: {}", name);
         let path = PathBuf::from("attachments").join(&name);
         fs::write(path, data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         return Ok(Json(format!("/attachments/{}", name)));
     }
 
+    error!("Error uploading file");
     Err(StatusCode::BAD_REQUEST)
 }
 
