@@ -1,0 +1,9 @@
+services:
+    textpod-docker:
+        image: textpod-docker
+        build: .
+        ports:
+            - '8099:80'
+        volumes:
+            - './notes:/app/notes'
+        container_name: textpod
