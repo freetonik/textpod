@@ -31,11 +31,26 @@ brew install textpod
 
 In order to download webpages, you need to have `monolith` installed. `cargo install monolith` or `brew install monolith` (macOS). See [monolith](https://github.com/Y2Z/monolith) for more details.
 
-
 ## Usage
 
 Run `textpod` in any directory. It will create a `notes.md` file if it doesn't exist. It will create `attachments` directory for file and image attachments.
 Webpages are saved in `attachments/webpages`. You can specify the port with `-p` flag, e.g. `textpod -p 8080` and/or the address with `-l` flag, e.g. `textpod -l 0.0.0.0`.
+
+## Docker
+
+Here's how to build a Docker image and run it on port `8099`, mapping the `notes` directory (under current directory).
+
+```console
+cd docker
+docker build -t textpod-docker .
+docker run --rm --name textpod -d -v $(pwd)/notes:/app -p 8099:80 textpod-docker
+```
+
+Or with Compose:
+
+```console
+docker compose up -d --build
+```
 
 ## Contributing
 
