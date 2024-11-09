@@ -41,7 +41,6 @@ Webpages are saved in `attachments/webpages`. You can specify the port with `-p`
 Here's how to build a Docker image and run it on port `8099`, mapping the `notes` directory (under current directory).
 
 ```console
-cd docker
 docker build -t textpod-docker .
 docker run --rm --name textpod -d -v $(pwd)/notes:/app -p 8099:80 textpod-docker
 ```

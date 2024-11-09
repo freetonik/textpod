@@ -1,9 +1,10 @@
 services:
     textpod-docker:
-        image: textpod-docker
+        image: freetonik/textpod:latest
         build: .
         ports:
             - '8099:80'
         volumes:
             - './notes:/app/notes'
         container_name: textpod
+        restart: unless-stopped
