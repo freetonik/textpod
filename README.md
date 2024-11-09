@@ -4,7 +4,7 @@
 
 # Textpod
 
-Local, web-based notetaking app inspired by "One Big Text File" idea. Short demo (video, no sound):
+Local, web-based note-taking app inspired by "One Big Text File" idea. Short demo:
 
 [![Textpod short demo video](https://img.youtube.com/vi/VAqJJxaJNVM/0.jpg)](https://www.youtube.com/watch?v=VAqJJxaJNVM)
 
@@ -54,5 +54,5 @@ docker compose up -d --build
 
 ## Contributing
 
-Feel free to open issues and pull requests. I want to keep the code very simple and accessible to beginners. The goal is not to create another feature-rich notetaking app, but to keep it simple and fast.
+Feel free to open issues and pull requests. I want to keep the code very simple and accessible to beginners. The goal is not to create another feature-rich note-taking app, but to keep it simple and fast.
 A "one big text file" idea is very powerful and I just want to make it slightly enhanced.

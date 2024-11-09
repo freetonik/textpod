@@ -3,21 +3,10 @@ FROM rust:latest
 RUN cargo install monolith
 RUN cargo install textpod
 
-RUN mkdir /app
-RUN mkdir /app/notes
-WORKDIR /app
+WORKDIR /app/notes
 
-RUN apt update
-RUN apt install nginx -y
-COPY ./nginx.conf /etc/nginx/sites-enabled/default
+HEALTHCHECK --interval=60s --retries=3 --timeout=1s \
+CMD curl -f http://localhost:3000/ || exit 1
 
-COPY <<EOF /app/start.sh
-#!/bin/bash
-service nginx start
-cd notes
-textpod -p 3000
-EOF
-
-RUN chmod +x /app/start.sh
-
-CMD ["/app/start.sh"]
+ENTRYPOINT ["textpod"]
+CMD ["-p", "3000", "-l", "0.0.0.0"]
