@@ -10,11 +10,12 @@ readme = "README.md"
 
 [dependencies]
 axum = { version = "0.7.7", features = ["multipart"] }
-tokio = { version = "1.41.0", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full"] }
 tower-http = { version = "0.6.1", features = ["fs"] }
 comrak = "0.29"
-serde = { version = "1.0", features = ["derive"] }
+serde = { version = "1.0.215", features = ["derive"] }
 chrono = "0.4.38"
 clap = { version = "4.4", features = ["derive"] }
 tracing = "0.1"
-tracing-subscriber = "0.2"
+tracing-subscriber = "0.3.18"
+base64 = "0.22.1"

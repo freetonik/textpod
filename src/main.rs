@@ -6,6 +6,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use base64::{display::Base64Display, engine::general_purpose::STANDARD};
 use chrono::Local;
 use clap::Parser;
 use comrak::{markdown_to_html, Options};
@@ -23,213 +24,8 @@ use tower_http::services::ServeDir;
 use tracing::{error, info};
 use tracing_subscriber;
 
-const INDEX_HTML: &str = r#"<!DOCTYPE html>
-<html>
-<head>
-    <title>Textpod</title>
-    <meta name="color-scheme" content="light dark"/>
-    <link rel="shortcut icon" href="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9ImN1cnJlbnRDb2xvciIgdmlld0JveD0iMCAwIDI0IDI0IiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxwYXRoIGQ9J00xMS42NjkgMi4yODJjLjIxOC0uMDQzLjQ0My0uMDQzLjY2MiAwIC4yNTEuMDQ4LjQ3OS4xNjcuNjkxLjI3N2wuMDUzLjAyOCA4LjI3IDQuMjhhLjc1Ljc1IDAgMCAxIC40MDUuNjY2djcuODk3YzAgLjI4My4wMDIuNTgzLS4wOTMuODYyYTEuNzU4IDEuNzU4IDAgMCAxLS4zOTUuNjUyYy0uMjA1LjIxNC0uNDczLjM1MS0uNzIzLjQ4bC0uMDYzLjAzMy04LjEzMSA0LjIwOGEuNzUuNzUgMCAwIDEtLjY5IDBsLTguMTMxLTQuMjA4LS4wNjMtLjAzM2MtLjI1LS4xMjktLjUxOC0uMjY2LS43MjMtLjQ4YTEuNzU5IDEuNzU5IDAgMCAxLS4zOTUtLjY1MmMtLjA5NS0uMjgtLjA5NC0uNTgtLjA5My0uODYzVjcuNTMzYS43NS43NSAwIDAgMSAuNDA1LS42NjZsOC4yNjktNC4yOC4wNTMtLjAyN2MuMjEzLS4xMTEuNDQtLjIzLjY5Mi0uMjc4bS4yMjYgMS40OTZhNi41NzkgNi41NzkgMCAwIDAtLjI4Mi4xNDFMNC42NjggNy41MTQgMTIgMTEuMTAybDcuMzMyLTMuNTg4LTYuOTQ2LTMuNTk1YTYuNTA1IDYuNTA1IDAgMCAwLS4yODItLjE0MS40OC40OCAwIDAgMC0uMDU4LS4wMjRtLS43OTYgMTYuMDEzdi03LjM2MmwtNy41LTMuNjd2Ni42MjRjMCAuMTg3IDAgLjI5NC4wMDUuMzc1YS40OTYuNDk2IDAgMCAwIC4wMDkuMDc4LjI1OC4yNTggMCAwIDAgLjA1Ny4wOTVjLjAwNS4wMDQuMDIxLjAxNy4wNjQuMDQyLjA2OC4wNDIuMTYzLjA5LjMyOC4xNzZ6bS42NDUtMTUuOTlhLjQ4My40ODMgMCAwIDEgLjA2LS4wMjN6Jy8+PC9zdmc+" />
-    <style>
-        @media (prefers-color-scheme: light) {
-            time {
-                color: #666;
-            }
-            .note code {
-                background-color: #dedcd1;
-            }
-            .note pre {
-                background-color: #dedcd1;
-            }
-        }
-        @media (prefers-color-scheme: dark) {
-            time {
-                color: #BBB;
-            }
-            .note code {
-                background-color: #3a3a3a;
-            }
-            .note pre {
-                background-color: #3a3a3a;
-            }
-        }
-        html {
-            height: 100%;
-        }
-        body {
-            font-family: system-ui, -apple-system, sans-serif;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-        }
-        #editor {
-            width: 100%;
-            height: 200px;
-            margin-bottom: 2em;
-            font-family: monospace;
-            padding: 1em;
-            resize: vertical;
-            box-sizing: border-box
-        }
-        .note > :first-child {
-            margin-top: 0;
-        }
-        .note > :nth-last-child(2) {
-            margin-bottom: 0.5em;
-        }
-        .note {
-            margin-bottom: 1.75em;
-            padding-top: 0.25em;
-        }
-        .note code {
-            padding: 0.25em;
-        }
-        .note pre {
-            padding: 0.5em;
-        }
-        .note pre code {
-            padding: 0;
-            background-color: transparent;
-        }
-        .note img, .note iframe, .note video, .note audio, .note embed, .note svg {
-            max-width: 100%;
-        }
-        time {
-            font-size: 0.9em;
-            margin-bottom: 0.25em;
-            font-family: monospace;
-        }
-    </style>
-</head>
-<body>
-
-    <textarea id="editor" placeholder="Ctrl+Enter to save.&#10;Type / to search.&#10;Drag & drop files to attach.&#10;Start links with + to save local copies."></textarea>
-    <div id="notes">{{NOTES}}</div>
-
-    <script>
-        const editor = document.getElementById('editor');
-        const notesDiv = document.getElementById('notes');
-        let searchTimeout = null;
-        let originalNotes = notesDiv.innerHTML;
-
-        // Check for search parameter on page load
-        window.addEventListener('load', () => {
-            const params = new URLSearchParams(window.location.search);
-            const searchQuery = params.get('q');
-            if (searchQuery) {
-                editor.value = '/' + decodeURIComponent(searchQuery);
-                performSearch(searchQuery);
-            }
-        });
-
-        async function performSearch(query) {
-            const response = await fetch(`/search/${encodeURIComponent(query)}`);
-            if (response.ok) {
-                const notes = await response.json();
-                displayNotes(notes);
-            }
-        }
-
-        editor.addEventListener('input', async (e) => {
-            const text = editor.value;
-            if (text.startsWith('/')) {
-                if (searchTimeout) {
-                    clearTimeout(searchTimeout);
-                }
-                searchTimeout = setTimeout(async () => {
-                    const query = text.slice(1);
-                    // Update URL with search parameter
-                    const newUrl = query
-                        ? `${window.location.pathname}?q=${encodeURIComponent(query)}`
-                        : window.location.pathname;
-                    window.history.replaceState({}, '', newUrl);
-
-                    if (query) {
-                        await performSearch(query);
-                    }
-                }, 100);
-            } else if (text === '') {
-                // Clear search parameter from URL
-                window.history.replaceState({}, '', window.location.pathname);
-                notesDiv.innerHTML = originalNotes;
-            }
-        });
-
-        editor.addEventListener('keydown', async (e) => {
-            if (e.ctrlKey && e.key === 'Enter' && !editor.value.startsWith('/')) {
-                const response = await fetch('/save', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(editor.value)
-                });
-
-                if (response.ok) {
-                    editor.value = '';
-                    // Clear search parameter from URL when saving
-                    window.history.replaceState({}, '', window.location.pathname);
-
-                    const notesResponse = await fetch('/');
-                    if (notesResponse.ok) {
-                        const text = await notesResponse.text();
-                        const tempDiv = document.createElement('div');
-                        tempDiv.innerHTML = text;
-                        const newNotes = tempDiv.querySelector('#notes').innerHTML;
-                        notesDiv.innerHTML = newNotes;
-                        originalNotes = newNotes;
-                    }
-                }
-            }
-        });
-
-        editor.addEventListener('dragover', (e) => {
-            e.preventDefault();
-        });
-
-        editor.addEventListener('drop', async (e) => {
-            e.preventDefault();
-
-            const files = e.dataTransfer.files;
-            for (const file of files) {
-                const formData = new FormData();
-                formData.append('file', file);
-
-                const response = await fetch('/upload', {
-                    method: 'POST',
-                    body: formData
-                });
-
-                if (response.ok) {
-                    const path = await response.json();
-                    const filename = path.split('/').pop();
-
-                    const position = editor.selectionStart;
-                    const before = editor.value.substring(0, position);
-                    const after = editor.value.substring(position);
-
-                    // Link path with spaces needs to be wrapped in < >, Commonmark spec apparently handles this
-                    const needsBrackets = path.includes(' ') || filename.includes(' ');
-                    const formattedPath = needsBrackets ? `<${path}>` : path;
-
-                    if (file.type.startsWith('image/')) {
-                        editor.value = `${before}![${filename}](${formattedPath})${after}`;
-                    } else {
-                        editor.value = `${before}[${filename}](${formattedPath})${after}`;
-                    }
-                }
-            }
-        });
-
-        function displayNotes(notes) {
-            notesDiv.innerHTML = notes
-                .map(note => `
-                    <div class="note">
-                        ${note.html}
-                        <time datetime="${note.timestamp}">${note.timestamp}</time>
-                    </div>`)
-                .join('');
-        }
-    </script>
-</body>
-</html>"#;
+const INDEX_HTML: &str = include_str!("index.html");
+const FAVICON_SVG: &[u8] = include_bytes!("favicon.svg");
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
@@ -251,6 +47,7 @@ struct Note {
 
 #[derive(Clone)]
 struct AppState {
+    html: String,
     notes: Arc<Mutex<Vec<Note>>>,
 }
 
@@ -263,7 +60,14 @@ async fn main() {
     let args = Args::parse();
     fs::create_dir_all("attachments").unwrap();
 
+    let favicon = Base64Display::new(FAVICON_SVG, &STANDARD);
+    let html = INDEX_HTML.replace(
+        "{{FAVICON}}",
+        format!("data:image/svg+xml;base64,{favicon}").as_str(),
+    );
+
     let state = AppState {
+        html,
         notes: Arc::new(Mutex::new(load_notes())),
     };
 
@@ -339,7 +143,7 @@ async fn index(State(state): State<AppState>) -> Html<String> {
         .collect::<Vec<_>>()
         .join("\n");
 
-    let html = INDEX_HTML.replace("{{NOTES}}", &notes_html);
+    let html = state.html.replace("{{NOTES}}", &notes_html);
     Html(html)
 }
 
