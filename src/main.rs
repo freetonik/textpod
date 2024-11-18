@@ -1,9 +1,8 @@
 use axum::{
-    extract::{DefaultBodyLimit, Multipart},
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State},
     http::StatusCode,
-    response::Html,
-    routing::{delete, get, post},
+    response::{Html, IntoResponse},
+    routing::{get, post},
     Json, Router,
 };
 use base64::{display::Base64Display, engine::general_purpose::STANDARD};
@@ -73,11 +72,12 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
-        .route("/notes", get(get_notes))
-        .route("/save", post(save_note))
-        .route("/search/:query", get(search_notes))
+        .route("/notes", get(get_notes).post(save_note))
+        .route(
+            "/notes/:index",
+            get(get_note_by_index).delete(delete_note_by_index),
+        ) // TODO PUT/PATCH
         .route("/upload", post(upload_file))
-        .route("/delete/:timestamp", delete(delete_note))
         .layer(DefaultBodyLimit::max(CONTENT_LENGTH_LIMIT))
         .nest_service("/attachments", ServeDir::new("attachments"))
         .with_state(state);
@@ -86,7 +86,7 @@ async fn main() {
     let addr: SocketAddr = server_details
         .parse()
         .expect("Unable to parse socket address");
-    println!("Starting server on http://{}", addr);
+    info!("Starting server on http://{}", addr);
 
     match tokio::net::TcpListener::bind(&addr).await {
         Ok(listener) => {
@@ -132,30 +132,63 @@ fn load_notes() -> Vec<Note> {
 
 // route / (root)
 async fn index(State(state): State<AppState>) -> Html<String> {
-    let notes = state.notes.lock().unwrap();
-    let notes_html = notes
-        .iter()
-        .rev()
-        .map(|note| {
-            format!(
-                "<div class=\"note\">{}<div class=\"noteMetadata\"><time datetime=\"{}\">{}</time> [<a href=\"#\" data-timestamp=\"{}\" onclick=\"deleteNote(event, this)\">delete</a>]</div></div>",
-                note.html, note.timestamp, note.timestamp, note.timestamp
-            )
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
-
-    let html = state.html.replace("{{NOTES}}", &notes_html);
-    Html(html)
+    Html(state.html)
 }
 
 // GET /notes
 async fn get_notes(State(state): State<AppState>) -> Json<Vec<Note>> {
     let notes = state.notes.lock().unwrap();
-    Json(notes.iter().rev().cloned().collect::<Vec<_>>())
+    Json(notes.iter().cloned().collect::<Vec<_>>())
 }
 
-// route /save
+// GET /notes/:index
+async fn get_note_by_index(
+    State(state): State<AppState>,
+    Path(index): Path<usize>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let notes = state.notes.lock().unwrap();
+    if index >= notes.len() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("request for non-existent note #{index}"),
+        ));
+    }
+
+    return Ok(Json(notes.iter().collect::<Vec<_>>()[index].clone()));
+}
+
+// DELETE /notes/:index
+async fn delete_note_by_index(
+    State(state): State<AppState>,
+    Path(index): Path<usize>,
+) -> Result<impl IntoResponse, (StatusCode, String)> {
+    let mut notes = state.notes.lock().unwrap();
+    if index >= notes.len() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            format!("request for non-existent note #{index}"),
+        ));
+    }
+
+    notes.remove(index);
+
+    // Update the notes.md file
+    let content = notes
+        .iter()
+        .map(|note| format!("{}\n{}\n\n---\n\n", note.timestamp, note.content))
+        .collect::<String>();
+
+    if let Err(e) = fs::write("notes.md", content) {
+        return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
+    }
+
+    info!("Note deleted: {}", index);
+
+    // TODO return the deleted note, maybe?
+    return Ok(StatusCode::NO_CONTENT);
+}
+
+// POST /notes
 async fn save_note(
     State(state): State<AppState>,
     Json(content): Json<String>,
@@ -256,44 +289,6 @@ async fn save_note(
     }
 
     Ok(())
-}
-
-// route DELETE /delete/{timestamp}
-async fn delete_note(
-    State(state): State<AppState>,
-    Path(timestamp): Path<String>,
-) -> Result<(), StatusCode> {
-    let mut notes = state.notes.lock().unwrap();
-
-    // Find and remove the note with matching timestamp
-    if let Some(index) = notes.iter().position(|note| note.timestamp == timestamp) {
-        notes.remove(index);
-
-        // Update the notes.md file
-        let content = notes
-            .iter()
-            .map(|note| format!("{}\n{}\n\n---\n\n", note.timestamp, note.content))
-            .collect::<String>();
-
-        fs::write("notes.md", content).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-        info!("Note deleted: {}", timestamp);
-        Ok(())
-    } else {
-        error!("Note not found: {}", timestamp);
-        Err(StatusCode::NOT_FOUND)
-    }
-}
-
-// route GET /search/{query}
-async fn search_notes(State(state): State<AppState>, Path(query): Path<String>) -> Json<Vec<Note>> {
-    let notes = state.notes.lock().unwrap();
-    let filtered: Vec<Note> = notes
-        .iter()
-        .filter(|note| note.content.to_lowercase().contains(&query.to_lowercase()))
-        .cloned()
-        .collect();
-    Json(filtered)
 }
 
 // route POST /upload

@@ -115,109 +115,71 @@
     <textarea id="editor"
         placeholder="Ctrl+Enter to save.&#10;Type / to search.&#10;Drag & drop files to attach.&#10;Start links with + to save local copies."></textarea>
     <div id="submitContainer"><button id="submitButton">Submit</button></div>
-    <div id="notes">{{NOTES}}</div>
+    <div id="notes"></div>
 
     <script>
         const editor = document.getElementById('editor');
         const notesDiv = document.getElementById('notes');
         const submitButton = document.getElementById('submitButton');
         let searchTimeout = null;
-        let originalNotes = notesDiv.innerHTML;
 
-        // Check for search parameter on page load
-        window.addEventListener('load', () => {
-            const params = new URLSearchParams(window.location.search);
-            const searchQuery = params.get('q');
-            if (searchQuery) {
-                editor.value = '/' + decodeURIComponent(searchQuery);
-                performSearch(searchQuery);
-            } else {
-                loadNotes();
-            }
+        window.addEventListener('load', async () => {
+            displayNotes();
         });
 
-        async function loadNotes() {
+        // fetches and displays all notes, optionally filtering them based on the query parameter `q`
+        async function displayNotes() {
+            const params = new URLSearchParams(window.location.search);
+            const searchQuery = params.get('q');
             let response = await fetch('/notes');
             if (response.ok) {
-                notes.innerHTML = '';
                 const notes = await response.json();
-                notes.forEach((note, i) => {
-                    let container = document.createElement('div');
-                    container.className = 'note';
-                    container.id = `note-${i}`;
-
-                    let metadata = document.createElement('div');
-                    metadata.className = 'noteMetadata';
-
-                    let time = document.createElement('time');
-                    time.innerHTML = note.timestamp;
-                    metadata.appendChild(time);
-
-                    let deleteLink = document.createElement('a');
-                    deleteLink.href = '#';
-                    deleteLink.onclick = () => deleteNote(event, container);
-                    deleteLink.innerHTML = 'delete';
-
-                    metadata.appendChild(document.createTextNode(' ['));
-                    metadata.appendChild(deleteLink);
-                    metadata.appendChild(document.createTextNode(']'));
-
-                    container.innerHTML = note.html;
-                    container.appendChild(metadata);
-
-                    notesDiv.appendChild(container);
-                });
+                notesDiv.innerHTML = notes
+                    .filter(note => !searchQuery || note.content.includes(searchQuery))
+                    .map((note, i) => `
+                    <div class="note">
+                        ${note.html}
+                        <div class="noteMetadata">
+                            <time datetime="${note.timestamp}">${note.timestamp}</time>
+                            [<a href="#" onclick="deleteNote(${i})">delete</a>]
+                        </div>
+                    </div>`)
+                    .reverse() // TODO implement user-specified sorting (reverse chronological by default)
+                    .join('');
             }
         }
 
-        async function performSearch(query) {
-            const response = await fetch(`/search/${encodeURIComponent(query)}`);
-            if (response.ok) {
-                const notes = await response.json();
-                displayNotes(notes);
-            }
-        }
-
+        // saves a new note and refreshes the page
         async function saveNotes() {
             if (!editor.value) {
                 return;
             }
-            const response = await fetch('/save', {
+            const saveResponse = await fetch('/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(editor.value)
             });
 
-            if (response.ok) {
+            // TODO more efficient way to do this than reloading all notes every time
+            if (saveResponse.ok) {
                 editor.value = '';
-                // Clear search parameter from URL when saving
-                window.history.replaceState({}, '', window.location.pathname);
-
-                const notesResponse = await fetch('/');
-                if (notesResponse.ok) {
-                    const text = await notesResponse.text();
-                    const tempDiv = document.createElement('div');
-                    tempDiv.innerHTML = text;
-                    const newNotes = tempDiv.querySelector('#notes').innerHTML;
-                    notesDiv.innerHTML = newNotes;
-                    originalNotes = newNotes;
-                }
+                displayNotes();
             }
         }
 
-        async function deleteNote(event, element) {
+        // deletes note with index `idx`
+        async function deleteNote(idx) {
             event.preventDefault();
             if (!confirm('Are you sure you want to delete this note?')) {
                 return;
             }
 
-            const timestamp = element.getAttribute('data-timestamp');
-            const response = await fetch(`/delete/${timestamp}`, {
-                method: 'DELETE',
+            deleteResponse = await fetch(`/notes/${idx}`, {
+                method: 'DELETE'
             });
 
-            if (response.ok) {
-                element.closest('.note').remove();
+            if (deleteResponse.ok) {
+                displayNotes();
             } else {
                 alert('Failed to delete note');
             }
@@ -237,14 +199,11 @@
                         : window.location.pathname;
                     window.history.replaceState({}, '', newUrl);
 
-                    if (query) {
-                        await performSearch(query);
-                    }
-                }, 100);
+                    displayNotes();
+                }, 200);
             } else if (text === '') {
                 // Clear search parameter from URL
                 window.history.replaceState({}, '', window.location.pathname);
-                notesDiv.innerHTML = originalNotes;
             }
         });
 
@@ -296,15 +255,7 @@
             }
         });
 
-        function displayNotes(notes) {
-            notesDiv.innerHTML = notes
-                .map(note => `
-                    <div class="note">
-                        ${note.html}
-                        <time datetime="${note.timestamp}">${note.timestamp}</time>
-                    </div>`)
-                .join('');
-        }
+
     </script>
 </body>
 
