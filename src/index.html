@@ -107,7 +107,6 @@
         .note svg {
             max-width: 100%;
         }
-
     </style>
 </head>
 
@@ -132,8 +131,44 @@
             if (searchQuery) {
                 editor.value = '/' + decodeURIComponent(searchQuery);
                 performSearch(searchQuery);
+            } else {
+                loadNotes();
             }
         });
+
+        async function loadNotes() {
+            let response = await fetch('/notes');
+            if (response.ok) {
+                notes.innerHTML = '';
+                const notes = await response.json();
+                notes.forEach((note, i) => {
+                    let container = document.createElement('div');
+                    container.className = 'note';
+                    container.id = `note-${i}`;
+
+                    let metadata = document.createElement('div');
+                    metadata.className = 'noteMetadata';
+
+                    let time = document.createElement('time');
+                    time.innerHTML = note.timestamp;
+                    metadata.appendChild(time);
+
+                    let deleteLink = document.createElement('a');
+                    deleteLink.href = '#';
+                    deleteLink.onclick = () => deleteNote(event, container);
+                    deleteLink.innerHTML = 'delete';
+
+                    metadata.appendChild(document.createTextNode(' ['));
+                    metadata.appendChild(deleteLink);
+                    metadata.appendChild(document.createTextNode(']'));
+
+                    container.innerHTML = note.html;
+                    container.appendChild(metadata);
+
+                    notesDiv.appendChild(container);
+                });
+            }
+        }
 
         async function performSearch(query) {
             const response = await fetch(`/search/${encodeURIComponent(query)}`);
@@ -219,7 +254,7 @@
             }
         });
 
-        submitButton.addEventListener('click', async(e) => {
+        submitButton.addEventListener('click', async (e) => {
             saveNotes();
         })
 

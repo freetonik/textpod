@@ -73,6 +73,7 @@ async fn main() {
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/notes", get(get_notes))
         .route("/save", post(save_note))
         .route("/search/:query", get(search_notes))
         .route("/upload", post(upload_file))
@@ -146,6 +147,12 @@ async fn index(State(state): State<AppState>) -> Html<String> {
 
     let html = state.html.replace("{{NOTES}}", &notes_html);
     Html(html)
+}
+
+// GET /notes
+async fn get_notes(State(state): State<AppState>) -> Json<Vec<Note>> {
+    let notes = state.notes.lock().unwrap();
+    Json(notes.iter().rev().cloned().collect::<Vec<_>>())
 }
 
 // route /save
