@@ -135,7 +135,7 @@
             if (response.ok) {
                 const notes = await response.json();
                 notesDiv.innerHTML = notes
-                    .filter(note => !searchQuery || note.content.includes(searchQuery))
+                    .filter(note => !searchQuery || note.content.toLowerCase().includes(searchQuery.toLowerCase()))
                     .map((note, i) => `
                     <div class="note">
                         ${note.html}
