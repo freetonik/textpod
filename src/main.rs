@@ -41,7 +41,7 @@ struct Args {
     #[arg(short, long, default_value = "127.0.0.1")]
     listen: String,
     /// Save notes in FILE
-    #[arg(short='f', long, value_name="FILE", default_value = "notes.md")]
+    #[arg(short = 'f', long, value_name = "FILE", default_value = "notes.md")]
     notes_file: PathBuf,
 }
 
