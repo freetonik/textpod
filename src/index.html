@@ -217,6 +217,10 @@
             saveNotes();
         })
 
+        editor.addEventListener('paste', (e) => {
+            console.log(e);
+        });
+
         editor.addEventListener('dragover', (e) => {
             e.preventDefault();
         });

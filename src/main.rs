@@ -11,10 +11,12 @@ use clap::Parser;
 use comrak::{markdown_to_html, Options};
 use serde::{Deserialize, Serialize};
 use std::{
+    env,
     fs::{self},
     io::Write,
     net::SocketAddr,
     path::PathBuf,
+    process,
     sync::{Arc, Mutex},
 };
 use tokio::process::Command;
@@ -29,12 +31,18 @@ const FAVICON_SVG: &[u8] = include_bytes!("favicon.svg");
 #[derive(Parser)]
 #[command(author, version, about, long_about = None)]
 struct Args {
+    /// Change to DIR before doing anything
+    #[arg(short = 'C', long, value_name = "DIR")]
+    base_directory: Option<PathBuf>,
     /// Port number for the server
     #[arg(short, long, default_value_t = 3000)]
     port: u16,
     /// Listen address for the server
-    #[arg(short, long, default_value_t = String::from("127.0.0.1"))]
+    #[arg(short, long, default_value = "127.0.0.1")]
     listen: String,
+    /// Save notes in FILE
+    #[arg(short = 'f', long, value_name = "FILE", default_value = "notes.md")]
+    notes_file: PathBuf,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -48,6 +56,7 @@ struct Note {
 struct AppState {
     html: String,
     notes: Arc<Mutex<Vec<Note>>>,
+    notes_file: PathBuf,
 }
 
 const CONTENT_LENGTH_LIMIT: usize = 500 * 1024 * 1024; // allow uploading up to 500mb files... overkill?
@@ -57,7 +66,21 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
-    fs::create_dir_all("attachments").unwrap();
+
+    if let Some(path) = args.base_directory {
+        if let Err(e) = env::set_current_dir(&path) {
+            error!("could not change directory to {}: {e}", path.display());
+            process::exit(1);
+        }
+    }
+
+    if let Err(e) = fs::create_dir_all("attachments") {
+        error!(
+            "could not create attachments directory in {}: {e}",
+            env::current_dir().unwrap().display()
+        );
+        process::exit(1);
+    }
 
     let favicon = Base64Display::new(FAVICON_SVG, &STANDARD);
     let html = INDEX_HTML.replace(
@@ -65,9 +88,12 @@ async fn main() {
         format!("data:image/svg+xml;base64,{favicon}").as_str(),
     );
 
+    let notes = Arc::new(Mutex::new(load_notes(&args.notes_file)));
+
     let state = AppState {
         html,
-        notes: Arc::new(Mutex::new(load_notes())),
+        notes,
+        notes_file: args.notes_file,
     };
 
     let app = Router::new()
@@ -100,8 +126,8 @@ async fn main() {
     }
 }
 
-fn load_notes() -> Vec<Note> {
-    if let Ok(content) = fs::read_to_string("notes.md") {
+fn load_notes(file: &PathBuf) -> Vec<Note> {
+    if let Ok(content) = fs::read_to_string(file) {
         content
             .split("\n\n---\n\n")
             .filter(|s| !s.trim().is_empty())
@@ -172,13 +198,13 @@ async fn delete_note_by_index(
 
     notes.remove(index);
 
-    // Update the notes.md file
+    // Update the notes file
     let content = notes
         .iter()
         .map(|note| format!("{}\n{}\n\n---\n\n", note.timestamp, note.content))
         .collect::<String>();
 
-    if let Err(e) = fs::write("notes.md", content) {
+    if let Err(e) = fs::write(&state.notes_file, content) {
         return Err((StatusCode::INTERNAL_SERVER_ERROR, e.to_string()));
     }
 
@@ -225,7 +251,7 @@ async fn save_note(
     let mut file = fs::OpenOptions::new()
         .create(true)
         .append(true)
-        .open("notes.md")
+        .open(&state.notes_file)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     write!(file, "{}\n{}\n\n---\n\n", timestamp, content)
@@ -261,7 +287,7 @@ async fn save_note(
 
                         drop(notes_lock);
 
-                        if let Ok(file_content) = fs::read_to_string("notes.md") {
+                        if let Ok(file_content) = fs::read_to_string(&state.notes_file) {
                             let notes_lock = notes.lock().unwrap();
                             let updated_content: Vec<String> = file_content
                                 .split("\n---\n")
@@ -276,7 +302,7 @@ async fn save_note(
                                 .collect();
                             drop(notes_lock);
 
-                            if let Ok(mut file) = fs::File::create("notes.md") {
+                            if let Ok(mut file) = fs::File::create(&state.notes_file) {
                                 for note_content in updated_content {
                                     writeln!(file, "{}\n---", note_content).ok();
                                 }
