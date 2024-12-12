@@ -1,6 +1,6 @@
 [package]
 name = "textpod"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 license-file = "LICENSE"
 description = "Local, web-based notetaking app inspired by 'One Big Text File' idea."
