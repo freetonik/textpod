@@ -204,6 +204,7 @@
             } else if (text === '') {
                 // Clear search parameter from URL
                 window.history.replaceState({}, '', window.location.pathname);
+                displayNotes();
             }
         });
 
