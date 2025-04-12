@@ -351,7 +351,10 @@ async fn upload_file(mut multipart: Multipart) -> Result<Json<String>, StatusCod
             counter += 1;
         }
 
-        info!("Uploading file: {} (saved as {})", original_name, final_name);
+        info!(
+            "Uploading file: {} (saved as {})",
+            original_name, final_name
+        );
         fs::write(&path, data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
         return Ok(Json(format!("/attachments/{}", final_name)));
