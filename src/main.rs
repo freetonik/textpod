@@ -15,7 +15,7 @@ use std::{
     fs::{self},
     io::Write,
     net::SocketAddr,
-    path::PathBuf,
+    path::{Path as StdPath, PathBuf}, // Import std::path::Path
     process,
     sync::{Arc, Mutex},
 };
@@ -320,14 +320,41 @@ async fn save_note(
 // route POST /upload
 async fn upload_file(mut multipart: Multipart) -> Result<Json<String>, StatusCode> {
     while let Some(field) = multipart.next_field().await.unwrap() {
-        let name = field.file_name().unwrap().to_string();
+        let original_name = field.file_name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
 
-        info!("Uploading file: {}", name);
-        let path = PathBuf::from("attachments").join(&name);
-        fs::write(path, data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        // Generate unique filename if file already exists
+        let mut final_name = original_name.clone();
+        let mut path = PathBuf::from("attachments").join(&final_name);
+        let mut counter = 2;
 
-        return Ok(Json(format!("/attachments/{}", name)));
+        // Get file name and extension parts
+        let file_stem = StdPath::new(&original_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&original_name);
+
+        let extension = StdPath::new(&original_name)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        // Simply use -2, -3, etc. to make the filename unique;
+        // NOTE: maybe account for existing filenames which already have this counter prefix?
+        while path.exists() {
+            if extension.is_empty() {
+                final_name = format!("{}-{}", file_stem, counter);
+            } else {
+                final_name = format!("{}-{}.{}", file_stem, counter, extension);
+            }
+            path = PathBuf::from("attachments").join(&final_name);
+            counter += 1;
+        }
+
+        info!("Uploading file: {} (saved as {})", original_name, final_name);
+        fs::write(&path, data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        return Ok(Json(format!("/attachments/{}", final_name)));
     }
 
     error!("Error uploading file");
