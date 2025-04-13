@@ -324,10 +324,40 @@ async fn upload_file(mut multipart: Multipart) -> Result<Json<String>, StatusCod
         let data = field.bytes().await.unwrap();
 
         info!("Uploading file: {}", name);
-        let path = PathBuf::from("attachments").join(&name);
-        fs::write(path, data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-        return Ok(Json(format!("/attachments/{}", name)));
+        let original_path = PathBuf::from("attachments").join(&name);
+        let mut counter = 1;
+
+        let original_stem = original_path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+        let original_ext = original_path
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("");
+
+        // Generate unique filename if already exists
+        let mut path = original_path.clone();
+        while path.exists() {
+            // e.g: file-1.txt
+            let new_name = if original_ext.is_empty() {
+                format!("{}-{}", original_stem, counter)
+            } else {
+                format!("{}-{}.{}", original_stem, counter, original_ext)
+            };
+
+            path = original_path.parent().unwrap().join(new_name);
+            counter += 1;
+        }
+
+        fs::write(&path, data).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+        info!("File saved as {}", path.display());
+        return Ok(Json(format!(
+            "/attachments/{}",
+            path.file_name().unwrap().to_str().unwrap()
+        )));
     }
 
     error!("Error uploading file");
