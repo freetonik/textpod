@@ -1,3 +1,3 @@
-- [ ] Update version in `Cargo.toml`
+- [ ] Update version in `Cargo.toml` and re-generate `Cargo.lock`
 - [ ] Create Github release
 - [ ] Update homebrew formula https://github.com/freetonik/homebrew-tap
