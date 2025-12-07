@@ -48,6 +48,23 @@ docker run --rm --name textpod -d -v $(pwd)/notes:/app -p 8099:3000 freetonik/te
 
 Or check out `docker-compose.yml`.
 
+## Build and run
+
+### Requirements
+- Rust 1.80+ 
+
+Build
+
+```sh
+cargo build
+```
+
+Run via binary (`target/debug/textpod`) or via cargo:
+
+```sh
+cargo run
+```
+
 ## Contributing
 
 Feel free to open issues and pull requests. I want to keep the code very simple and accessible to beginners. The goal is not to create another feature-rich note-taking app, but to keep it simple and fast.
