@@ -374,6 +374,7 @@ fn md_to_html(markdown: &str) -> String {
     options.extension.tasklist = true;
     options.extension.superscript = true;
     options.render.unsafe_ = true;
+    options.render.hardbreaks = true;
     markdown_to_html(markdown, &options)
 }
 
