@@ -128,7 +128,7 @@ async fn shutdown() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await
-            .expect("Failed to isntall ctrl + c handler");
+            .expect("Failed to install ctrl + c handler");
     };
 
     #[cfg(unix)]
