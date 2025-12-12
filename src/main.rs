@@ -114,15 +114,37 @@ async fn main() {
         .expect("Unable to parse socket address");
     info!("Starting server on http://{}", addr);
 
-    match tokio::net::TcpListener::bind(&addr).await {
-        Ok(listener) => {
-            if let Err(e) = axum::serve(listener, app).await {
-                error!("Server error: {}", e);
-            }
+    if let Ok(listener) = tokio::net::TcpListener::bind(&addr).await {
+        if let Err(e) = axum::serve(listener, app)
+            .with_graceful_shutdown(shutdown())
+            .await
+        {
+            error!("Server error: {}", e);
         }
-        Err(e) => {
-            error!("Failed to bind to address {}: {}", addr, e);
-        }
+    }
+}
+
+async fn shutdown() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Failed to install ctrl + c handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("It's supposed to run in a unix system.")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => {},
+        _ = terminate => {},
     }
 }
 

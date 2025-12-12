@@ -10,7 +10,7 @@ readme = "README.md"
 
 [dependencies]
 axum = { version = "0.7.7", features = ["multipart"] }
-tokio = { version = "1.41.1", features = ["full"] }
+tokio = { version = "1.41.1", features = ["full", "signal"] }
 tower-http = { version = "0.6.1", features = ["fs"] }
 comrak = "0.29"
 serde = { version = "1.0.215", features = ["derive"] }
