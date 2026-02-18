@@ -107,6 +107,8 @@
         .note svg {
             max-width: 100%;
         }
+        .tag{display:inline-block;margin-right:0.4em;padding:0.2em 0.5em;border-radius:4px;border:1px solid var(--color-bg-secondary);background:transparent;cursor:pointer}
+        .tag.active{background:var(--color-bg-secondary)}
     </style>
 </head>
 
@@ -115,12 +117,16 @@
     <textarea id="editor"
         placeholder="Ctrl+Enter to save.&#10;Type / to search.&#10;Drag & drop files to attach.&#10;Start links with + to save local copies."></textarea>
     <div id="submitContainer"><button id="submitButton">Submit</button></div>
+    <input id="tagsInput" placeholder="tags (comma separated)" style="width:100%;margin:0.5em 0;padding:0.4em;font-family:monospace;box-sizing:border-box">
+    <div id="tagPicker" style="margin-bottom:1em"></div>
     <div id="notes"></div>
 
     <script>
         const editor = document.getElementById('editor');
         const notesDiv = document.getElementById('notes');
+        const tagPicker = document.getElementById('tagPicker');
         const submitButton = document.getElementById('submitButton');
+        const tagsInput = document.getElementById('tagsInput');
         let searchTimeout = null;
 
         window.addEventListener('load', async () => {
@@ -131,11 +137,45 @@
         async function displayNotes() {
             const params = new URLSearchParams(window.location.search);
             const searchQuery = params.get('q');
+            const tagQuery = params.get('tag');
             let response = await fetch('/notes');
             if (response.ok) {
                 const notes = await response.json();
-                notesDiv.innerHTML = notes
+
+                // Build tag picker from notes
+                const tagCounts = {};
+                notes.forEach(n => {
+                    if (Array.isArray(n.tags)) {
+                        n.tags.forEach(t => {
+                            tagCounts[t] = (tagCounts[t] || 0) + 1;
+                        })
+                    }
+                });
+
+                // render tag picker
+                const tags = Object.keys(tagCounts).sort((a,b)=> tagCounts[b]-tagCounts[a]);
+                tagPicker.innerHTML = '';
+                if (tags.length > 0) {
+                    const clearBtn = document.createElement('button');
+                    clearBtn.textContent = 'All';
+                    clearBtn.className = 'tag' + (tagQuery ? '' : ' active');
+                    clearBtn.onclick = () => setTag(null);
+                    tagPicker.appendChild(clearBtn);
+                    tags.forEach(t => {
+                        const b = document.createElement('button');
+                        b.textContent = `#${t} (${tagCounts[t]})`;
+                        b.className = 'tag' + (tagQuery === t ? ' active' : '');
+                        b.onclick = () => setTag(t);
+                        tagPicker.appendChild(b);
+                    });
+                }
+
+                // filter notes client-side by search query and tag
+                const filtered = notes
                     .filter(note => !searchQuery || note.content.toLowerCase().includes(searchQuery.toLowerCase()))
+                    .filter(note => !tagQuery || (Array.isArray(note.tags) && note.tags.map(x=>x.toLowerCase()).includes(tagQuery.toLowerCase())));
+
+                notesDiv.innerHTML = filtered
                     .map((note, i) => `
                     <div class="note">
                         ${note.html}
@@ -144,9 +184,15 @@
                             [<a href="#" onclick="deleteNote(${i})">delete</a>]
                         </div>
                     </div>`)
-                    .reverse() // TODO implement user-specified sorting (reverse chronological by default)
+                    .reverse()
                     .join('');
             }
+        }
+
+        function setTag(tag) {
+            const newUrl = tag ? `${window.location.pathname}?tag=${encodeURIComponent(tag)}` : window.location.pathname;
+            window.history.replaceState({}, '', newUrl);
+            displayNotes();
         }
 
         // saves a new note and refreshes the page
@@ -154,16 +200,28 @@
             if (!editor.value) {
                 return;
             }
+
+            // collect tags from tagsInput (comma separated)
+            const rawTags = (tagsInput && tagsInput.value) ? tagsInput.value.split(',').map(t=>t.trim()).filter(Boolean) : [];
+            let contentToSave = editor.value;
+            if (rawTags.length > 0) {
+                const tagString = rawTags.map(t => `#${t.replace(/[^A-Za-z0-9_-]/g,'')}`).join(' ');
+                contentToSave = `${contentToSave}\n\n${tagString}`;
+            }
+
             const saveResponse = await fetch('/notes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(editor.value)
+                body: JSON.stringify(contentToSave)
             });
 
-            // TODO more efficient way to do this than reloading all notes every time
+            // Clear inputs and refresh when saved
             if (saveResponse.ok) {
                 editor.value = '';
+                if (tagsInput) tagsInput.value = '';
                 displayNotes();
+            } else if (saveResponse.status === 405) {
+                alert('Server is running in read-only mode.');
             }
         }
 
