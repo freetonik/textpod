@@ -36,6 +36,17 @@ In order to download webpages, you need to have `monolith` installed. `cargo ins
 Run `textpod` in any directory. It will create a `notes.md` file if it doesn't exist. It will create `attachments` directory for file and image attachments.
 Webpages are saved in `attachments/webpages`. You can specify the port with `-p` flag, e.g. `textpod -p 8080` and/or the address with `-l` flag, e.g. `textpod -l 0.0.0.0`.
 
+## Configuration
+
+You can customize keyboard shortcuts by placing a `textpod.toml` file in the working directory (alongside `notes.md`). The file is optional — if absent, defaults apply.
+
+```toml
+[shortcuts]
+save = "Cmd+Enter"
+```
+
+Supported modifiers: `Ctrl`, `Cmd`, `Alt`, `Shift`. Combine them with `+` and a key name (e.g. `Enter`, `s`). The default save shortcut is `Ctrl+Enter`.
+
 ## Docker
 
 Docker image is available at [Docker Hub](https://hub.docker.com/r/freetonik/textpod).

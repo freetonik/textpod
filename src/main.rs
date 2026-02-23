@@ -59,6 +59,30 @@ struct AppState {
     notes_file: PathBuf,
 }
 
+#[derive(Deserialize, Default)]
+struct Config {
+    #[serde(default)]
+    shortcuts: ShortcutsConfig,
+}
+
+#[derive(Deserialize, Serialize)]
+struct ShortcutsConfig {
+    #[serde(default = "default_save_shortcut")]
+    save: String,
+}
+
+impl Default for ShortcutsConfig {
+    fn default() -> Self {
+        Self {
+            save: default_save_shortcut(),
+        }
+    }
+}
+
+fn default_save_shortcut() -> String {
+    "Ctrl+Enter".to_string()
+}
+
 const CONTENT_LENGTH_LIMIT: usize = 500 * 1024 * 1024; // allow uploading up to 500mb files... overkill?
 
 #[tokio::main]
@@ -74,6 +98,17 @@ async fn main() {
         }
     }
 
+    let config: Config = match fs::read_to_string("textpod.toml") {
+        Ok(contents) => match toml::from_str(&contents) {
+            Ok(cfg) => cfg,
+            Err(e) => {
+                error!("failed to parse textpod.toml: {e}; using defaults");
+                Config::default()
+            }
+        },
+        Err(_) => Config::default(),
+    };
+
     if let Err(e) = fs::create_dir_all("attachments") {
         error!(
             "could not create attachments directory in {}: {e}",
@@ -83,10 +118,15 @@ async fn main() {
     }
 
     let favicon = Base64Display::new(FAVICON_SVG, &STANDARD);
-    let html = INDEX_HTML.replace(
-        "{{FAVICON}}",
-        format!("data:image/svg+xml;base64,{favicon}").as_str(),
-    );
+    let shortcuts_json =
+        serde_json::to_string(&config.shortcuts).expect("failed to serialize shortcuts config");
+    let html = INDEX_HTML
+        .replace(
+            "{{FAVICON}}",
+            format!("data:image/svg+xml;base64,{favicon}").as_str(),
+        )
+        .replace("{{SHORTCUTS_CONFIG}}", &shortcuts_json)
+        .replace("{{SAVE_SHORTCUT_DISPLAY}}", &config.shortcuts.save);
 
     let notes = Arc::new(Mutex::new(load_notes(&args.notes_file)));
 

@@ -113,11 +113,26 @@
 <body>
 
     <textarea id="editor"
-        placeholder="Ctrl+Enter to save.&#10;Type / to search.&#10;Drag & drop files to attach.&#10;Start links with + to save local copies."></textarea>
+        placeholder="{{SAVE_SHORTCUT_DISPLAY}} to save.&#10;Type / to search.&#10;Drag & drop files to attach.&#10;Start links with + to save local copies."></textarea>
     <div id="submitContainer"><button id="submitButton">Submit</button></div>
     <div id="notes"></div>
 
     <script>
+        const SHORTCUTS = {{SHORTCUTS_CONFIG}};
+
+        function matchShortcut(event, binding) {
+            const parts = binding.split('+');
+            const key = parts.pop();
+            const mods = parts.map(m => m.toLowerCase());
+            return (
+                event.key === key &&
+                event.ctrlKey === mods.includes('ctrl') &&
+                event.metaKey === mods.includes('cmd') &&
+                event.altKey === mods.includes('alt') &&
+                event.shiftKey === mods.includes('shift')
+            );
+        }
+
         const editor = document.getElementById('editor');
         const notesDiv = document.getElementById('notes');
         const submitButton = document.getElementById('submitButton');
@@ -209,7 +224,7 @@
         });
 
         editor.addEventListener('keydown', async (e) => {
-            if (e.ctrlKey && e.key === 'Enter' && !editor.value.startsWith('/')) {
+            if (matchShortcut(e, SHORTCUTS.save) && !editor.value.startsWith('/')) {
                 saveNotes();
             }
         });
