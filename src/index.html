@@ -225,6 +225,7 @@
 
         editor.addEventListener('keydown', async (e) => {
             if (matchShortcut(e, SHORTCUTS.save) && !editor.value.startsWith('/')) {
+                e.preventDefault();
                 saveNotes();
             }
         });
