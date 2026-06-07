@@ -1,5 +1,5 @@
 use axum::{
-    extract::{DefaultBodyLimit, Multipart, Path, State},
+    extract::{DefaultBodyLimit, Multipart, Path, State, Query},
     http::StatusCode,
     response::{Html, IntoResponse},
     routing::{get, post},
@@ -10,6 +10,7 @@ use chrono::Local;
 use clap::Parser;
 use comrak::{markdown_to_html, Options};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::{
     env,
     fs::{self},
@@ -43,6 +44,9 @@ struct Args {
     /// Save notes in FILE
     #[arg(short = 'f', long, value_name = "FILE", default_value = "notes.md")]
     notes_file: PathBuf,
+    /// Optional positional mode token (use `readonly` to enable read-only mode)
+    #[arg(value_name = "MODE")]
+    mode: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -50,13 +54,16 @@ struct Note {
     timestamp: String,
     content: String,
     html: String,
+    tags: Vec<String>,
 }
 
 #[derive(Clone)]
 struct AppState {
     html: String,
+    embed_html: String,
     notes: Arc<Mutex<Vec<Note>>>,
     notes_file: PathBuf,
+    readonly: bool,
 }
 
 #[derive(Deserialize, Default)]
@@ -90,6 +97,13 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
+
+    // Use the positional token `readonly` to enable read-only mode, e.g.
+    // `cargo run -- readonly`
+    let readonly_flag = match args.mode.as_deref() {
+        Some("readonly") => true,
+        _ => false,
+    };
 
     if let Some(path) = args.base_directory {
         if let Err(e) = env::set_current_dir(&path) {
@@ -128,16 +142,52 @@ async fn main() {
         .replace("{{SHORTCUTS_CONFIG}}", &shortcuts_json)
         .replace("{{SAVE_SHORTCUT_DISPLAY}}", &config.shortcuts.save);
 
+    // Create an embed (read-only) version of the HTML by removing the editor
+    // and the per-note delete link. This is used for iframe embedding and
+    // also as the served root page when running in read-only mode.
+    let mut embed_html = html.clone();
+    // Remove the editor textarea and submit container
+    if let Some(start) = embed_html.find("<textarea id=\"editor\"") {
+        if let Some(end) = embed_html[start..].find("</textarea>") {
+            // include the closing tag
+            let end_idx = start + end + "</textarea>".len();
+            // Also remove the submitContainer that follows
+            if let Some(submit_pos) = embed_html[end_idx..].find("<div id=\"submitContainer\"") {
+                if let Some(submit_end) = embed_html[end_idx + submit_pos..].find("</div>") {
+                    let submit_end_idx = end_idx + submit_pos + submit_end + "</div>".len();
+                    embed_html.replace_range(start..submit_end_idx, "");
+                } else {
+                    embed_html.replace_range(start..end_idx, "");
+                }
+            } else {
+                embed_html.replace_range(start..end_idx, "");
+            }
+        }
+    }
+
+    // Remove the inline delete link rendered inside displayNotes()
+    // The snippet in the template is: [<a href="#" onclick="deleteNote(${i})">delete</a>]
+    embed_html = embed_html.replace("[<a href=\"#\" onclick=\"deleteNote(${i})\">delete</a>]", "");
+
     let notes = Arc::new(Mutex::new(load_notes(&args.notes_file)));
+
+    // If running in read-only mode, set an env var so handlers without access to
+    // State (like the multipart upload handler) can behave accordingly.
+    if readonly_flag {
+        std::env::set_var("TEXTPOD_READONLY", "1");
+    }
 
     let state = AppState {
         html,
+        embed_html: embed_html.clone(),
         notes,
         notes_file: args.notes_file,
+        readonly: readonly_flag,
     };
 
     let app = Router::new()
         .route("/", get(index))
+        .route("/embed", get(get_embed_with_query))
         .route("/notes", get(get_notes).post(save_note))
         .route(
             "/notes/:index",
@@ -206,10 +256,12 @@ fn load_notes(file: &PathBuf) -> Vec<Note> {
                 };
 
                 let html = md_to_html(&content);
+                let tags = extract_tags(&content);
                 Note {
                     timestamp,
                     content: content.to_string(),
                     html,
+                    tags,
                 }
             })
             .collect()
@@ -220,7 +272,53 @@ fn load_notes(file: &PathBuf) -> Vec<Note> {
 
 // route / (root)
 async fn index(State(state): State<AppState>) -> Html<String> {
-    Html(state.html)
+    if state.readonly {
+        Html(state.embed_html.clone())
+    } else {
+        Html(state.html.clone())
+    }
+}
+
+// GET /embed?tag=... - return embeddable HTML filtered by tag
+async fn get_embed_with_query(
+    State(state): State<AppState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Html<String> {
+    let tag = params.get("tag").map(|s| s.to_lowercase());
+
+    let notes = state.notes.lock().unwrap();
+    let filtered: Vec<Note> = notes
+        .iter()
+        .cloned()
+        .filter(|n| match &tag {
+            Some(t) => n.tags.iter().any(|tg| tg == t),
+            None => true,
+        })
+        .collect();
+
+    // Minimal HTML page for embedding filtered notes. Copy core styles from index.html.
+    let mut out = String::new();
+    out.push_str("<!DOCTYPE html><html><head><meta charset=\"utf-8\">\n");
+    out.push_str("<meta name=\"color-scheme\" content=\"light dark\" />\n");
+    out.push_str("<style>");
+    out.push_str(".note{margin-bottom:1.75em;padding-top:0.25em}.note .noteMetadata{font-size:0.9em;font-family:monospace;color:#666}.note img,.note iframe,.note video,.note audio,.note embed,.note svg{max-width:100%}");
+    out.push_str("</style></head><body>\n");
+
+    out.push_str("<div id=\"notes\">\n");
+    for note in filtered.iter().rev() {
+        out.push_str("<div class=\"note\">\n");
+        out.push_str(&note.html);
+        out.push_str("<div class=\"noteMetadata\">\n");
+        out.push_str(&format!("<time datetime=\"{}\">{}</time>", note.timestamp, note.timestamp));
+        if !note.tags.is_empty() {
+            out.push_str(" &nbsp; ");
+            out.push_str(&note.tags.iter().map(|t| format!("#{}", t)).collect::<Vec<_>>().join(" "));
+        }
+        out.push_str("</div></div>\n");
+    }
+    out.push_str("</div></body></html>");
+
+    Html(out)
 }
 
 // GET /notes
@@ -250,6 +348,9 @@ async fn delete_note_by_index(
     State(state): State<AppState>,
     Path(index): Path<usize>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
+    if state.readonly {
+        return Err((StatusCode::METHOD_NOT_ALLOWED, String::from("read-only mode")));
+    }
     let mut notes = state.notes.lock().unwrap();
     if index >= notes.len() {
         return Err((
@@ -281,6 +382,9 @@ async fn save_note(
     State(state): State<AppState>,
     Json(content): Json<String>,
 ) -> Result<(), StatusCode> {
+    if state.readonly {
+        return Err(StatusCode::METHOD_NOT_ALLOWED);
+    }
     let mut content = content.clone();
 
     // Replace "---" with "<hr>" in the content
@@ -301,11 +405,13 @@ async fn save_note(
     }
 
     let timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    let html = md_to_html(&content); // Changed to pass a reference
+    let html = md_to_html(&content);
+    let tags = extract_tags(&content);
     let note = Note {
         timestamp: timestamp.clone(),
         content: content.clone(),
         html,
+        tags,
     };
 
     state.notes.lock().unwrap().push(note);
@@ -381,6 +487,12 @@ async fn save_note(
 
 // route POST /upload
 async fn upload_file(mut multipart: Multipart) -> Result<Json<String>, StatusCode> {
+    // Check env var set at startup for readonly mode; this handler doesn't
+    // currently receive State, so use env var as a pragmatic signal.
+    if std::env::var("TEXTPOD_READONLY").is_ok() {
+        return Err(StatusCode::METHOD_NOT_ALLOWED);
+    }
+
     while let Some(field) = multipart.next_field().await.unwrap() {
         let name = field.file_name().unwrap().to_string();
         let data = field.bytes().await.unwrap();
@@ -459,4 +571,22 @@ fn url_to_safe_filename(url: &str) -> String {
     }
 
     safe_name.trim_matches(|c| c == '.' || c == ' ').to_string()
+}
+
+fn extract_tags(content: &str) -> Vec<String> {
+    content
+        .split_whitespace()
+        .filter_map(|w| {
+            if w.starts_with('#') && w.len() > 1 {
+                // strip leading '#' and trailing punctuation
+                let mut tag = w.trim_start_matches('#').trim().to_string();
+                // remove surrounding punctuation
+                tag = tag.trim_matches(|c: char| !c.is_alphanumeric() && c != '-' && c != '_').to_string();
+                if !tag.is_empty() {
+                    return Some(tag.to_lowercase());
+                }
+            }
+            None
+        })
+        .collect()
 }
